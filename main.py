@@ -1,3 +1,6 @@
+''' status: Works!  '''''
+# bugs! check #### for the changes and error location
+
 import argparse
 import math
 import time
@@ -29,8 +32,8 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
             test = torch.cat((test, Y));
         
         scale = data.scale.expand(output.size(0), data.m)
-        total_loss += evaluateL2(output * scale, Y * scale).data[0]
-        total_loss_l1 += evaluateL1(output * scale, Y * scale).data[0]
+        total_loss += evaluateL2(output * scale, Y * scale).item() ####.data[0]
+        total_loss_l1 += evaluateL1(output * scale, Y * scale).item() ####.data[0]
         n_samples += (output.size(0) * data.m);
     rse = math.sqrt(total_loss / n_samples)/data.rse
     rae = (total_loss_l1/n_samples)/data.rae
@@ -43,6 +46,7 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
     mean_g = Ytest.mean(axis = 0)
     index = (sigma_g!=0);
     correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis = 0)/(sigma_p * sigma_g);
+    ####: RuntimeWarning: invalid value encountered in divide
     correlation = (correlation[index]).mean();
     return rse, rae, correlation;
 
@@ -57,7 +61,8 @@ def train(data, X, Y, model, criterion, optim, batch_size):
         loss = criterion(output * scale, Y * scale);
         loss.backward();
         grad_norm = optim.step();
-        total_loss += loss.data[0];
+        total_loss += loss.item();  ####.data[0]
+        # according to: https://github.com/NVIDIA/flownet2-pytorch/issues/113#issuecomment-523341100
         n_samples += (output.size(0) * data.m);
     return total_loss / n_samples
     
@@ -89,7 +94,7 @@ parser.add_argument('--seed', type=int, default=54321,
 parser.add_argument('--gpu', type=int, default=None)
 parser.add_argument('--log_interval', type=int, default=2000, metavar='N',
                     help='report interval')
-parser.add_argument('--save', type=str,  default='model/model.pt',
+parser.add_argument('--save', type=str,  default='models\model.pt',
                     help='path to save the final model')
 parser.add_argument('--cuda', type=str, default=True)
 parser.add_argument('--optim', type=str, default='adam')
@@ -125,11 +130,12 @@ nParams = sum([p.nelement() for p in model.parameters()])
 print('* number of parameters: %d' % nParams)
 
 if args.L1Loss:
-    criterion = nn.L1Loss(size_average=False);
+    criterion = nn.L1Loss(reduction='sum');  #size_average=False);  ####
+    # by this: https://discuss.pytorch.org/t/userwarning-size-average-and-reduce-args-will-be-deprecated-please-use-reduction-sum-instead/24629/6
 else:
-    criterion = nn.MSELoss(size_average=False);
-evaluateL2 = nn.MSELoss(size_average=False);
-evaluateL1 = nn.L1Loss(size_average=False)
+    criterion = nn.MSELoss(reduction='sum');  #size_average=False);
+evaluateL2 = nn.MSELoss(reduction='sum');  #size_average=False);
+evaluateL1 = nn.L1Loss(reduction='sum');  #size_average=False)
 if args.cuda:
     criterion = criterion.cuda()
     evaluateL1 = evaluateL1.cuda();
@@ -168,3 +174,19 @@ with open(args.save, 'rb') as f:
     model = torch.load(f)
 test_acc, test_rae, test_corr  = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1, args.batch_size);
 print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr))
+
+# elec result...
+# test rse 0.1051 | test rae 0.0558 | test corr 0.9080
+# test rse 0.1037 | test rae 0. 0575 | test corr 0.8987
+
+# solar
+# test rse 0.4723 | test rae 0.2886 | test corr 0.8872
+# test rse 0.4284 | test rae 0.2348 | test corr 0.9098
+
+# stock
+# test rse 0.0390 | test rae 0.0327 | test corr 0.9536
+# test rse 0.0359 | test rae 0.0293 | test corr 0.9539
+
+# traffic
+# test rse 0.5047 | test rae 0.3442 | test corr 0.8615
+# test rse 0.4977 | test rae 0.3344 | test corr 0.8613
